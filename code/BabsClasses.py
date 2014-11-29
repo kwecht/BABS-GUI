@@ -92,6 +92,7 @@ class PlotOptions:
         #     annual customers and recent (casual) customers.
         #   {options here}
         self.division = ''
+        self.division_types = []  # {['Subscriber','Customer'], ['Monday','Tuesday',...], ...}
 
         # Time over which to average data.
         # Used when plotting timeseries and 
@@ -141,6 +142,14 @@ class PlotOptions:
         # 2. From radio buttons indicating by which variable we should
         #    divide the bars.
         self.division = str(MainWindow.divisionGroup.checkedButton().objectName())
+        if self.division=='Customer Type':
+            self.division_types=['Subscriber','Customer']
+        elif self.division=='Hour of Day':
+            self.division_types = [str(val) for val in range(24)]
+        elif self.division=='Day of Week':
+            self.division_types = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+        elif self.division=='Region':
+            self.division_types = ['San Francisco','San Jose','Mountain View','Redwood City','Palo Alto']
 
         # 3. From check buttons indicating what to overplot
         #self.overtype = 

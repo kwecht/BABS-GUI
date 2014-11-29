@@ -223,8 +223,8 @@ METHODS
         # Set plot title = title0 + ' of ' + title1
         title0 = ['Timeseries', 'Histogram']
         title1 = ['Number of Rides', 'Ride Duration [minutes]', 'Ride Distance [km]']
-        title2 = ['Time (other)', 'Number of Rides', 'Day of Week average', 
-                  'Hour of Day average', 'Region']
+        title2 = ['Time (other)', 'Number of Rides', 'Day of Week', 
+                  'Hour of Day', 'Region']
         title = (title0[NewOptions.typeid] + ' of ' + 
                  title1[NewOptions.barid] + ' binned by ' + 
                  title2[NewOptions.binid])
@@ -702,43 +702,32 @@ METHODS
                 basedata = BabsFunctions.getdata('trip',NewOptions)
 
                 # Create Pandas data frame to hold all information
-                tempdf = pd.DataFrame( np.ones(len(basedata['Duration'])), index=basedata.index )
-                tempdf = tempdf.resample( NewOptions.dT, how=np.sum ).fillna(0)
+                tempdf = pd.DataFrame( basedata['Trip ID'].resample( NewOptions.dT, how='count' ).fillna(0) )
                 tempdf.columns = ['Number of Rides']
 
                 # Calculate values for each sub-division of the data set
-                if NewOptions.division=='Customer Type':
-                    types = ['Subscriber','Customer']
+                if NewOptions.division!=[]:
+
+                    types = NewOptions.division_types
                     for ii in range(len(types)):
-                        column = pd.DataFrame( np.zeros(len(basedata['Duration'])), index=basedata.index )
-                        column.loc[basedata['Subscription Type']==types[ii]] = 1
-                        column = column.resample( NewOptions.dT, how=np.sum ).fillna(0)
-                        tempdf[types[ii]] = column[0]
 
-                elif NewOptions.division=='Day of Week':
-                    types = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
-                    for ii in range(len(types)):
-                        column = pd.DataFrame( np.zeros(len(basedata['Duration'])), index=basedata.index )
-                        column.loc[basedata.index.dayofweek==ii] = 1  # Monday
-                        column = column.resample( NewOptions.dT, how=np.sum ).fillna(0)
-                        tempdf[types[ii]] = column[0]
+                        # Make column of zeros for each bicycle ride
+                        column = pd.DataFrame( np.zeros(len(basedata)), index=basedata.index )
 
-                elif NewOptions.division=='Hour of Day':
-                    types = [str(val) for val in range(24)]
-                    for ii in range(len(types)):
-                        column = pd.DataFrame( np.zeros(len(basedata['Duration'])), index=basedata.index )
-                        column.loc[basedata.index.hour==ii] = 1  # Monday
-                        column = column.resample( NewOptions.dT, how=np.sum ).fillna(0)
-                        tempdf[types[ii]] = column[0]
+                        # Place a 1 in each row associated with this particular type
+                        if NewOptions.division=='Customer Type':
+                            column.loc[basedata['Subscription Type']==types[ii]] = 1
+                        elif NewOptions.division=='Day of Week':
+                            column.loc[basedata.index.dayofweek==ii] = 1
+                        elif NewOptions.division=='Hour of Day':
+                            column.loc[basedata.index.hour==ii] = 1
+                        elif NewOptions.division=='Region':
+                            column.loc[basedata['region']==types[ii]] = 1
 
-                elif NewOptions.division=='Region':
-                    types = ['San Francisco','San Jose','Mountain View','Palo Alto','Redwood City']
-                    for region in types:
-                        column = pd.DataFrame( np.zeros(len(basedata['Duration'])), index=basedata.index )
-                        column.loc[basedata['region']==region] = 1  
+                        # Count the number of ones in each part of the timeseries
                         column = column.resample( NewOptions.dT, how=np.sum ).fillna(0)
-                        tempdf[region] = column[0]
-
+                        if not column.empty:
+                                tempdf[types[ii]] = column
 
                 # Drop original item in the pandas dataframe
                 if NewOptions.division!='None':
@@ -777,291 +766,48 @@ METHODS
             # Number of Rides
             if NewOptions.barid==0:
 
-                # Number of Rides
+                # Get column of number of rides in the basedata
+                basedata = BabsFunctions.getdata('trip', NewOptions)
+
+                # Group the basedata into divisions indicated by the bin ID
                 if NewOptions.binid==1:
-
-                    # Get column of number of rides in each time period
-                    basedata = BabsFunctions.getdata('trip',NewOptions)
-                    tempdf = pd.DataFrame( np.ones(len(basedata['Duration'])), index=basedata.index )
-                    tempdf = tempdf.resample( NewOptions.dT, how=np.sum ).fillna(0)
-
-                    # Put histogram of rides into a pandas dataframe
-                    tempdf.columns = ['Number of Rides']
-                    count, divisions = np.histogram(tempdf['Number of Rides'], bins=20)
+                    tempdf = basedata.resample( NewOptions.dT, how='count' ).fillna(0)['Trip ID']
+                    count, divisions = np.histogram(tempdf, bins=20)  # Put histogram into dataframe
                     tempdf = pd.DataFrame(count, index=divisions[:-1]+(divisions[1]-divisions[0])/2.)
-                    tempdf.index.name = 'Number of Rides'
-                    tempdf.columns = ['Number of Occurances']
+                if NewOptions.binid==2:
+                    tempdf = pd.DataFrame(basedata['Trip ID'].groupby(basedata.index.dayofweek).count())
+                if NewOptions.binid==3:
+                    tempdf = pd.DataFrame(basedata['Trip ID'].groupby(basedata.index.hour).count())
+                if NewOptions.binid==4:
+                    tempdf = pd.DataFrame(basedata['Trip ID'].groupby(basedata['region']).count())
+                tempdf.index.name = 'Number of Rides'
+                tempdf.columns = ['Number of Rides']
 
-                    # Add sub-division bars, if indicated
-                    if NewOptions.division=='Customer Type':
-                        types = ['Subscriber','Customer']
-                        for ii in range(len(types)):
+                # Divide bars for plotting, if indicated
+                if NewOptions.division!='None':
+                    
+                    types = NewOptions.division_types
+                    for ii in range(len(types)):
+                        column = BabsFunctions.get_column(basedata,ii,NewOptions)
+                        if NewOptions.binid==1:
+                            column = pd.DataFrame( column.resample( NewOptions.dT, 
+                                                                    how='count' ).fillna(0),
+                                                   columns=['ones'] )
+                            thistypefrac = BabsFunctions.typefraction(column,divisions)
+                        elif NewOptions.binid==2:
+                            thistypefrac = column.groupby(column.index.dayofweek).count()
+                        elif NewOptions.binid==3:
+                            thistypefrac = column.groupby(column.index.hourofday).count()
+                        elif NewOptions.binid==4:
+                            thistypefrac = column.groupby(column.index).count()
 
-                            # Make column of ones for each event and column of ones for each
-                            #    event that matches the condition.
-                            column = pd.DataFrame( np.ones(len(basedata['Duration'])), index=basedata.index )
-                            column.columns = ['ones']
-                            column['zeros'] = np.zeros(len(column))
-                            column['zeros'].loc[basedata['Subscription Type']==types[ii]] = 1
-                            column = column.resample( NewOptions.dT, how=np.sum ).fillna(0)
-                        
-                            # Calculate fraction of events of this type in the data
-                            thistypefrac = BabsFunctions.typefraction(column,divisions)
-    
-                            # Add the value for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac*tempdf['Number of Occurances']
-    
-                    # Sub-division by day of the week
-                    elif NewOptions.division=='Day of Week':
-                        types = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
-                        for ii in range(len(types)):
-                            column = pd.DataFrame( np.ones(len(basedata['Duration'])), index=basedata.index )
-                            column.columns = ['ones']
-                            column['zeros'] = np.zeros(len(column))
-                            column['zeros'].loc[basedata.index.dayofweek==ii] = 1
-                            column = column.resample( NewOptions.dT, how=np.sum ).fillna(0)
-                        
-                            # Calculate fraction of events of this type in the data
-                            thistypefrac = BabsFunctions.typefraction(column,divisions)
-    
-                            # Add the value for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac*tempdf['Number of Occurances']
-    
-                    # Sub-division by hour of the day
-                    elif NewOptions.division=='Hour of Day':
-                        types = [str(val) for val in range(24)]
-                        for ii in range(len(types)):
-    
-                            column = pd.DataFrame( np.ones(len(basedata['Duration'])), index=basedata.index )
-                            column.columns = ['ones']
-                            column['zeros'] = np.zeros(len(column))
-                            column['zeros'].loc[basedata.index.hour==ii] = 1
-                            column = column.resample( NewOptions.dT, how=np.sum ).fillna(0)
-    
-                            # Calculate fraction of events of this type in the data
-                            thistypefrac = BabsFunctions.typefraction(column,divisions)
-    
-                            # Add the value for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac*tempdf['Number of Occurances']
-    
-                    # Sub-division by region
-                    elif NewOptions.division=='Region':
-                        types = ['San Francisco','San Jose','Mountain View','Palo Alto','Redwood City']
-                        for ii in range(len(types)):
-    
-                            column = pd.DataFrame( np.ones(len(basedata['Duration'])), index=basedata.index )
-                            column.columns = ['ones']
-                            column['zeros'] = np.zeros(len(column))
-                            column['zeros'].loc[basedata['region']==types[ii]] = 1
-                            column = column.resample( NewOptions.dT, how=np.sum ).fillna(0)
-    
-                            # Calculate fraction of events of this type in the data
-                            thistypefrac = BabsFunctions.typefraction(column,divisions)
-    
-                            # Add the value for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac*tempdf['Number of Occurances']
-    
+                        # Add the value for this type to the dataframe
+                        if not column.empty:
+                            tempdf[types[ii]] = thistypefrac
+
                     # Drop original item in the pandas dataframe
                     if NewOptions.division!='None':
-                        tempdf.drop('Number of Occurances',axis=1,inplace=True)
-
-                # Day of the week
-                elif NewOptions.binid==2:
-
-                    # Get column of number of rides in each time bin
-                    basedata = BabsFunctions.getdata('trip', NewOptions)
-                    tempdf = pd.DataFrame( np.ones(len(basedata['Duration'])), index=basedata.index )
-
-                    # Group by hour of day
-                    tempdf = tempdf.groupby(tempdf.index.dayofweek).sum()
-                    tempdf.index.name = 'Number of Rides'
-                    tempdf.columns = ['Number of Occurances']
-    
-                    # Add sub-division bars, if indicated
-                    if NewOptions.division=='Customer Type':
-                        types = ['Subscriber','Customer']
-                        for ii in range(len(types)):
-    
-                            # Make a new column where 1 marks if the condition of this type is met
-                            newtemp = pd.DataFrame( np.zeros(len(basedata['Duration'])), index=basedata.index )
-                            newtemp.columns = ['zeros']
-                            newtemp['zeros'].loc[basedata['Subscription Type']==types[ii]] = 1
-    
-                            # Calculate the number of occurances of this type
-                            thistypefrac = newtemp.groupby(newtemp.index.dayofweek).sum()
-    
-                            # Add the values for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac
-
-                    elif NewOptions.division=='Hour of Day':
-                        types = [str(val) for val in range(24)]
-                        for ii in range(len(types)):
-    
-                            # Make a new column where 1 marks if the condition of this type is met
-                            newtemp = pd.DataFrame( np.zeros(len(basedata['Duration'])), index=basedata.index )
-                            newtemp.columns = ['zeros']
-                            newtemp['zeros'].loc[basedata.index.hour==ii] = 1
-    
-                            # Calculate the number of occurances of this type
-                            thistypefrac = newtemp.groupby(newtemp.index.dayofweek).sum()
-    
-                            # Add the values for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac
-    
-                    elif NewOptions.division=='Region':
-                        types = ['San Francisco','San Jose','Mountain View','Palo Alto','Redwood City']
-                        for ii in range(len(types)):
-    
-                            # Make a new column where 1 marks if the condition of this type is met
-                            newtemp = pd.DataFrame( np.zeros(len(basedata['Duration'])), index=basedata.index )
-                            newtemp.columns = ['zeros']
-                            newtemp['zeros'].loc[basedata['region']==types[ii]] = 1
-    
-                            # Calculate the number of occurances of this type
-                            thistypefrac = newtemp.groupby(newtemp.index.dayofweek).sum()
-    
-                            # Add the values for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac
-    
-                    # Drop original item in the pandas dataframe
-                    if NewOptions.division!='None':
-                        tempdf.drop('Number of Occurances',axis=1,inplace=True)
-
-                # Hour of the Day
-                elif NewOptions.binid==3:
-
-                    # Get column of number of rides in each time period
-                    basedata = BabsFunctions.getdata('trip', NewOptions)
-                    tempdf = pd.DataFrame( np.ones(len(basedata['Duration'])), index=basedata.index )
-
-                    # Group by hour of day
-                    tempdf = tempdf.groupby(tempdf.index.hour).sum()
-                    tempdf.index.name = 'Number of Rides'
-                    tempdf.columns = ['Number of Occurances']
-
-                    # Add sub-division bars, if indicated
-                    if NewOptions.division=='Customer Type':
-                        types = ['Subscriber','Customer']
-                        for ii in range(len(types)):
-    
-                            # Make a new column where 1 marks if the condition of this type is met
-                            newtemp = pd.DataFrame( np.zeros(len(basedata['Duration'])), index=basedata.index )
-                            newtemp.columns = ['zeros']
-                            newtemp['zeros'].loc[basedata['Subscription Type']==types[ii]] = 1
-    
-                            # Calculate the number of occurances of this type
-                            thistypefrac = newtemp.groupby(newtemp.index.hour).sum()
-    
-                            # Add the values for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac
-    
-                    elif NewOptions.division=='Day of Week':
-                        types = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
-                        for ii in range(len(types)):
-    
-                            # Make a new column where 1 marks if the condition of this type is met
-                            newtemp = pd.DataFrame( np.zeros(len(basedata['Duration'])), index=basedata.index )
-                            newtemp.columns = ['zeros']
-                            newtemp['zeros'].loc[basedata.index.dayofweek==ii] = 1
-    
-                            # Calculate the number of occurances of this type
-                            thistypefrac = newtemp.groupby(newtemp.index.hour).sum()
-    
-                            # Add the values for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac
-    
-                    elif NewOptions.division=='Region':
-                        types = ['San Francisco','San Jose','Mountain View','Palo Alto','Redwood City']
-                        for ii in range(len(types)):
-    
-                            # Make a new column where 1 marks if the condition of this type is met
-                            newtemp = pd.DataFrame( np.zeros(len(basedata['Duration'])), index=basedata.index )
-                            newtemp.columns = ['zeros']
-                            newtemp['zeros'].loc[basedata['region']==types[ii]] = 1
-    
-                            # Calculate the number of occurances of this type
-                            thistypefrac = newtemp.groupby(newtemp.index.hour).sum()
-    
-                            # Add the values for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac
-    
-                    # Drop original item in the pandas dataframe
-                    if NewOptions.division!='None':
-                        tempdf.drop('Number of Occurances',axis=1,inplace=True)
-
-                # Region
-                elif NewOptions.binid==4:
-
-                    # Get column of number of rides in each time period
-                    basedata = BabsFunctions.getdata('trip', NewOptions)
-                    tempdf = pd.DataFrame( np.ones(len(basedata['Duration'])), index=basedata.region )
-
-                    # Group by hour of day
-                    tempdf = tempdf.groupby(tempdf.index).sum()
-                    tempdf.index.name = 'Region'
-                    tempdf.columns = ['Number of Occurances']
-
-                    # Add sub-division bars, if indicated
-                    if NewOptions.division=='Customer Type':
-                        types = ['Subscriber','Customer']
-                        for ii in range(len(types)):
-
-                            # Make a new column where 1 marks if the condition of this type is met
-                            newtemp = pd.DataFrame( {'zeros':np.zeros(len(basedata['Duration'])),
-                                                     'region':basedata['region']}, index=basedata.index )
-                            newtemp['zeros'].loc[basedata['Subscription Type']==types[ii]] = 1
-
-                            # Calculate the number of occurances of this type
-                            thistypefrac = newtemp.groupby(newtemp.region).sum()
-
-                            # Add the values for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac
-
-                    elif NewOptions.division=='Day of Week':
-                        types = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
-                        for ii in range(len(types)):
-    
-                            # Make a new column where 1 marks if the condition of this type is met
-                            newtemp = pd.DataFrame( {'zeros':np.zeros(len(basedata['Duration'])),
-                                                     'region':basedata['region']}, index=basedata.index )
-                            newtemp['zeros'].loc[basedata.index.dayofweek==ii] = 1
-    
-                            # Calculate the number of occurances of this type
-                            thistypefrac = newtemp.groupby(newtemp.region).sum()
-    
-                            # Add the values for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac
-    
-                    elif NewOptions.division=='Hour of Day':
-                        types = [str(val) for val in range(24)]
-                        for ii in range(len(types)):
-    
-                            # Make a new column where 1 marks if the condition of this type is met
-                            newtemp = pd.DataFrame( {'zeros':np.zeros(len(basedata['Duration'])),
-                                                     'region':basedata['region']}, index=basedata.index )
-                            newtemp['zeros'].loc[basedata.index.hour==ii] = 1
-    
-                            # Calculate the number of occurances of this type
-                            thistypefrac = newtemp.groupby(newtemp.region).sum()
-    
-                            # Add the values for this type to the dataframe
-                            tempdf[types[ii]] = thistypefrac
-    
-                    # Drop original item in the pandas dataframe
-                    if NewOptions.division!='None':
-                        tempdf.drop('Number of Occurances',axis=1,inplace=True)
-    
-                    # Reset index to be numbers for calculating width of plot
-                    xticklabels = tempdf.index
-                    tempdf.index = range(len(tempdf.index))
-
-
-            # Duration of Rides
-            #elif NewOptions.barid==1:
-            #    basedata = BabsFunctions.getdata('trip',NewOptions)
-            #    tempdf = basedata[['Duration']]
-            #    tempdf.columns = ['Duration of Ride']
-
+                        tempdf.drop('Number of Rides',axis=1,inplace=True)
 
 
         # Create the barplot
@@ -1078,19 +824,16 @@ METHODS
             #width = 1.0*(tempdf.index[1]-tempdf.index[0])
 
         # Calculate barplot colors
+        types = NewOptions.division_types
         if NewOptions.division=='None':
             barcolors = ['b']
         elif NewOptions.division=='Customer Type':
-            types = ['Subscriber','Customer']
             barcolors = cm.rainbow( np.linspace(0,1,len(types)) )
         elif NewOptions.division=='Day of Week':
-            types = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
             barcolors = cm.rainbow( np.linspace(0,1,len(types)) )
         elif NewOptions.division=='Hour of Day':
-            types = [str(val) for val in range(24)]
             barcolors = cm.hsv( np.linspace(0,1,len(types)) )
         elif NewOptions.division=='Region':
-            types = ['San Francisco','San Jose','Mountain View','Redwood City','Palo Alto']
             barcolors = cm.jet( np.linspace(0,1,len(types)) )
 
 
@@ -1103,6 +846,11 @@ METHODS
 
             # Add the bar to the axis. If plotting many (divisions), make sure
             #   to set ax.hold(True) after the first call
+            if len(tempdf.columns)==1: 
+                colorindex = 0
+            else:
+                colorindex = types.index(tempdf.columns[ii])
+
             thisbar = self.ax.bar( tempdf.index, tempdf.iloc[:,ii], width,
                                    bottom=previous, color=barcolors[ii] )
             bars.append(thisbar)

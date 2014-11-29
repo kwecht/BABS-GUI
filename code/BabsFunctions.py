@@ -222,3 +222,32 @@ def typefraction(column,divisions):
 
     # Return fraction of occurances to calling program
     return thistypefrac
+
+
+def get_column( basedata, ii, PlotOptions ):
+    """
+Retrieves a column of Trip IDs that match a particular condition supplied by
+types[ii] and the division name."""
+
+    
+    # Select data based on condition of the division type being met
+    types = PlotOptions.division_types
+    if PlotOptions.division=='Customer Type':
+        selection = basedata['Subscription Type']==types[ii]
+    elif PlotOptions.division=='Day of Week':
+        selection = basedata.index.dayofweek==ii
+    elif PlotOptions.division=='Hour of Day':
+        selection = basedata.index.hour==ii
+    elif PlotOptions.division=='Region':
+        selection = basedata['region']==types[ii]
+
+    column = basedata[selection]['Trip ID']
+
+    # If grouping data by region, make sure we have region information
+    # by putting region in the column index
+    if PlotOptions.binid==4:
+        column.index = basedata[selection]['region']
+
+
+    # Return column of data to calling program
+    return column
