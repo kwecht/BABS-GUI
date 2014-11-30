@@ -180,6 +180,8 @@ def getdata(name,NewOptions):
             data = pd.read_csv( filein, na_values="?",
                                 parse_dates={'date':['Date']} )
             data = data.set_index('date')
+            data[data['Precipitation_In ']=='T'] = 0.01
+            data['Precipitation_In '] = data['Precipitation_In '].astype(float)
 
         # Save dataframe as pickle
         fileout = '../data/201402-babs-open-data/' + name + '.pkl'
@@ -251,3 +253,56 @@ types[ii] and the division name."""
 
     # Return column of data to calling program
     return column
+
+
+def bin_weather( data, tempdf, PlotOptions ):
+    """
+Average selected weather data into bins corresponding to the x-axis of 
+the main plot."""
+
+    # If plotting timeseries
+    if PlotOptions.typeid==0:
+
+        # Resample data to frequency of the main plot
+        
+        newdata = data.resample( PlotOptions.dT, how=np.mean, fill_method='ffill' )
+
+        # Add timeseries offset to newly created data so that it matches
+        # the bar graph being plotted
+        timedelta = tempdf.index[0] - newdata.index[0]
+        newdata.index = newdata.index + timedelta
+
+    # If plotting histogram
+    elif PlotOptions.typeid==1:
+
+        # Plot number of rides
+        if PlotOptions.barid==0:
+
+            # Bin by Number of rides
+            if PlotOptions.binid==1:
+                tempdata = data.resample( PlotOptions.dT, how=np.mean, fill_method='ffill' )
+                divisions = tempdf.index - 0.5*(tempdf.index[1]-tempdf.index[0])
+                divisions.append( divisions[-1]+(tempdf.index[1]-tempdf.index[0]) )
+
+                # Calculate average weather for each bin
+                count, divisions = np.histogram( tempdata, bins=divisions )
+                weather, divisions = np.histogram( tempdata, bins=divisions,
+                                                       weights=tempdata[column] )
+                newdata = pd.DataFrame( weather / count, columns=tempdata.columns,
+                                        index=tempdata.index )
+
+            # Bin by day of week
+            elif PlotOptions.binid==2:
+                newdata = pd.DataFrame( data.groupby(data.index.dayofweek).mean() )
+
+            # Bin by hour of day
+            elif PlotOptions.barid==3:
+                newdata = pd.DataFrame( data.groupby(data.index.hour).mean() )
+            
+            # Bin by region
+            elif PlotOptions.barid==4:
+                newdata = pd.DataFrame( data.groupby(data.region).mean() )
+            
+
+    # Return new dataframe to calling function
+    return newdata

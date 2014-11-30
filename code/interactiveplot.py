@@ -235,6 +235,9 @@ METHODS
         else:
             ylabel = title1[NewOptions.barid]
 
+        if NewOptions.overtype!=[]:
+            ylabel2 = NewOptions.overtype[0]
+
         # Set x-axis label
         if NewOptions.typeid==0: xlabel='Date'
         if NewOptions.typeid==1: xlabel=title2[NewOptions.binid]
@@ -247,8 +250,10 @@ METHODS
 
         # Place all labels on the plot
         plt.title(title)
-        plt.ylabel(ylabel)
-        plt.xlabel(xlabel)
+        self.ax.set_ylabel(ylabel)
+        self.ax.set_xlabel(xlabel)
+        if hasattr(self,'ax2'):
+            self.ax2.set_ylabel(ylabel2)
         #plt.yticks()
         #plt.xticks()
 
@@ -446,44 +451,39 @@ METHODS
     def initOverplots(self):
         """Initialize widgets to control the items to plot on top of the bar plot"""
 
-        label_timeseries  = QtGui.QLabel('Overplot Options  (out of service)')
-        label_timeseries.setAlignment(QtCore.Qt.AlignCenter)
-        thisfont = label_timeseries.font()
+        label_overplot  = QtGui.QLabel('Overplot Options')
+        label_overplot.setAlignment(QtCore.Qt.AlignCenter)
+        thisfont = label_overplot.font()
         thisfont.setPointSize(16)
-        label_timeseries.setFont(thisfont)
+        label_overplot.setFont(thisfont)
 
-        checkbox_nrides   = QtGui.QCheckBox('Number Rides',self)
-        checkbox_duration = QtGui.QCheckBox('Duration [min]',self)
-        checkbox_rain     = QtGui.QCheckBox('Precipitation',self)
-        checkbox_wind     = QtGui.QCheckBox('Wind',self)
-
-        # Set default values for which boxes are checked 
-        #   Default is not checked
-        #checkbox_nrides.toggle()   # Initialize plot with # of rides displayed
-
-        # Associate actions with each checkbox
-        #    When the state of the checkbox changes, execute these functions
-        #checkbox_nrides.stateChanged.connect(self.function_name)  
-        #checkbox_duration.stateChanged.connect(self.function_name)
-
-        # Place widgets on grid
+        # Place label on widget grid
         rowoffset = self.gridParams.overgroup_row0
-        self.grid.addWidget( label_timeseries, self.gridParams.optrow0+rowoffset,
-                                               self.gridParams.optcol0,
-                                               1,
-                                               self.gridParams.optncol, )
-        self.grid.addWidget( checkbox_nrides,  self.gridParams.optrow0+1+rowoffset,
-                             self.gridParams.optcol0+self.gridParams.nfiltercol*(1),
-                             1, self.gridParams.nfiltercol )
-        self.grid.addWidget( checkbox_duration,self.gridParams.optrow0+1+rowoffset,
-                             self.gridParams.optcol0+self.gridParams.nfiltercol*(2),
-                             1, self.gridParams.nfiltercol )
-        self.grid.addWidget( checkbox_rain,    self.gridParams.optrow0+2+rowoffset,
-                             self.gridParams.optcol0+self.gridParams.nfiltercol*(1),
-                             1, self.gridParams.nfiltercol )
-        self.grid.addWidget( checkbox_wind,    self.gridParams.optrow0+2+rowoffset,
-                             self.gridParams.optcol0+self.gridParams.nfiltercol*(2),
-                             1, self.gridParams.nfiltercol )
+        self.grid.addWidget( label_overplot, self.gridParams.optrow0+rowoffset,
+                                             self.gridParams.optcol0,
+                                             1, self.gridParams.optncol )
+
+        # ---- Group to hold overplot check boxes and place on grid
+        self.overGroup = QtGui.QButtonGroup()
+        self.overGroup.setExclusive(False)
+        types = ['Temperature (Min)', 'Temperature (Mean)', 'Temperature (Max)', 
+                 'Precipitation', 'Wind Speed (Mean)', 'Wind Speed (Max)']
+        buttonlist = []
+        counter = 0
+        ijs = [val for val in itertools.product(range(3),repeat=2) if val[0]<=1]
+        for name,ij in zip(types,ijs):
+            thisbutton = QtGui.QCheckBox(name,self)
+            thisbutton.setObjectName(name)
+            buttonlist.append(thisbutton)
+            #buttonlist[counter].clicked.connect(self.updateplot)
+            buttonlist[counter].setChecked(False)
+            self.overGroup.addButton(thisbutton)
+            self.overGroup.setId(thisbutton, counter)
+            self.grid.addWidget(buttonlist[counter], 
+                                self.gridParams.optrow0+rowoffset+1+ij[0],
+                                self.gridParams.optcol0+ij[1]*4+1, 1, 4)
+            counter += 1
+
 
     def initFilters(self):
         """Initialize widgets to filter the items in the time series"""
@@ -675,7 +675,21 @@ METHODS
 
         # Call plotting routine, passing the newly constructed instance
         #   of the PlotOptions class.
+        self.clearplot()
         self.plotbar(newoptions)
+
+
+    def clearplot(self):
+        """
+        Clear secondary axis from plot before plotting again."""
+
+        if hasattr(self,'ax2'):
+            for ii in range(len(self.ax2.lines)):
+                self.ax2.lines[0].remove()
+            self.overplotlegend.remove()
+            self.ax2.set_ylabel('')
+            self.ax2.set_yticklabels(['']*5)
+            self.canvas.draw()
 
 
     def plotbar(self,NewOptions):
@@ -861,31 +875,88 @@ METHODS
         # Update all other lines to overplot
         if NewOptions.overtype!=[]:
 
-            # Make new axis to plot
-            self.ax2.twinx()
+            # Initialize the new plot
+            self.ax2 = self.ax.twinx()
+            self.ax2.hold(True)
+
+            # Get data.
+            overdata = BabsFunctions.getdata('weather', NewOptions)
+            overlines = []
 
             # Add each new plot to the axis
             for name in NewOptions.overtype:
 
-                # Get data.  data = BabsFunctions.getdata('weather')
-                data = BabsFunctions.getdata('weather', NewOptions)
+                # Match names in NewOptions.overtype to column names in overdata
+                if name=='Temperature (Min)': 
+                    column='Min_TemperatureF'
+                    color='#00bfff'
+                if name=='Temperature (Mean)': 
+                    column='Mean_Temperature_F'
+                    color='#3cb371'
+                if name=='Temperature (Max)':
+                    column='Max_Temperature_F'
+                    color='#ff0000'
+                if name=='Precipitation': 
+                    column='Precipitation_In '
+                    color='#888888'
+                if name=='Wind Speed (Mean)': 
+                    column='Mean_Wind_Speed_MPH '
+                    color='#da70d6'
+                if name=='Wind Speed (Max)': 
+                    column='Max_Gust_Speed_MPH'
+                    color='#9400d3'
 
-                # if name==NewOptions.overtype[0]:
-                #     add this info to the axis
-                # else:
-                #     scale this info the axis and add it
+                # Average weather data into bins corresponding to the x-axis of the main plot
+                thisdata = BabsFunctions.bin_weather(overdata[column], tempdf, NewOptions )
+                if NewOptions.typeid==0: 
+                    thisdata.index = thisdata.index + (thisdata.index[1]-thisdata.index[0])//2
+                else:
+                    thisdata.index = thisdata.index + 0.5*(thisdata.index[1]-thisdata.index[0])
 
-            # Get data.   data = BabsFunctions.getdata('')
-            # Make the line.   thisline = plot(x,y)
-            # Add lines to this figure
+                # Make a line to show this data
+                if name[0:11]=='Temperature':
+                    baserange = 50.
+                    basemin   = 25
+                    basemax   = 95
+                    overlines.append( self.ax2.plot(thisdata.index,
+                                                    thisdata,color=color,lw=4,
+                                                    label=name))
+                    self.ax2.set_ylim([basemin,basemax])
+                else:
+                    # If we have already plotted something, scale this plot to a range
+                    if overlines!=[]:
+                        axlimit = self.ax2.get_ylim()
+                        thisrange = thisdata.max()-thisdata.min()
+                        thisdata = thisdata-thisdata.min()
+                        thisdata = thisdata*(baserange/thisrange)
+                        thisdata = thisdata + basemin
+                    # Otherwise don't scale the information
+                    else:
+                        baserange = thisdata.max()-thisdata.min()
+                        basemin = thisdata.min()-0.2*baserange
+                        basemax = thisdata.max()+0.2*baserange
+                        self.ax2.set_ylim([basemin,basemax])
 
+                    # Plot the non-temperature information on the plot
+                    overlines.append( self.ax2.plot(thisdata.index,
+                                                    thisdata,color=color,lw=4,
+                                                    label=name))
+                
+            # Create legend for this second axis
+            #ooga=booga
+            self.ax2.hold(False)
+            self.overplotlegend = self.ax2.legend(loc=2)# (line for line in overlines), 
+                                                       #(col for col in overdata) )
+            #self.overplotlegend.draggable()
 
         # Reset ax.hold(False) after placing everything on the plot
         self.ax.hold(False)
 
         # Make a legend for the figure
-        self.plotlegend = self.ax.legend( (bar[0] for bar in bars), (col for col in tempdf.columns) )
+        self.plotlegend = self.ax.legend( (bar[0] for bar in bars), 
+                                          (col for col in tempdf.columns) )
         self.plotlegend.draggable()
+
 
         # Add titles and labels
         #    Plot title and axis labels

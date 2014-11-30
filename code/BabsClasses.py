@@ -64,8 +64,8 @@ class GridParams:
         self.timegroup_row0 = 3
         self.bingroup_row0 = 3
         self.divisiongroup_row0 = 7
-        self.overgroup_row0 = 11
-        self.filtergroup_row0 = 15
+        self.overgroup_row0 = 12
+        self.filtergroup_row0 = 17
 
 # Define class to hold parameters that determine what to plot in the main widget.
 class PlotOptions:
@@ -152,7 +152,10 @@ class PlotOptions:
             self.division_types = ['San Francisco','San Jose','Mountain View','Redwood City','Palo Alto']
 
         # 3. From check buttons indicating what to overplot
-        #self.overtype = 
+        self.overtype = []
+        for button in MainWindow.overGroup.buttons():
+            if button.isChecked():
+                self.overtype.append(str(button.text()))
 
         # 4. From filter check boxes indicating what to trim from data
         #    Store filter information in dictionary in which the keys are
